@@ -1,128 +1,233 @@
 package main
 
 import (
-	"crypto/sha1"
+	"bufio"
 	"crypto/tls"
-	"encoding/binary"
 	"fmt"
 	"log"
+	"math/big"
 	"net/rpc"
-	"slices"
+	"os"
+	"runtime"
 	"strconv"
+	"strings"
+	"sync"
+	"time"
 )
 
-const M = 10
+const M = 32
 
 type Node struct {
-	id   uint64
-	addr string
-	tls  tls.Config
-	data Data
+	id    *big.Int
+	addr  string
+	tls   tls.Config
+	pNode PNode
+	data  Data
+	ft    FTable
 }
 type Data struct {
+	mu     sync.Mutex
 	kvs    []KeyValue
-	finger []Finger
 	sNodes []*Node
-	pNode  *Node
+	r      int
 }
 
 type KeyValue struct {
-	Key   int
+	Key   *big.Int
 	Value []byte
 }
 
-type maybe struct {
-	id   uint64
-	addr string
+type PNode struct {
+	mu sync.Mutex
+	n  *Node
+}
+type FTable struct {
+	mu     sync.Mutex
+	finger []Finger
 }
 
 type Finger struct {
-	i uint64
+	i *big.Int
 	n *Node
 }
 
 // main func
-
-// init Node & rpc?
-
-// create listener
-func (n *Node) server() {
-	key, pub, err := GenerateRSA()
-	if err != nil {
-		log.Fatal(err.Error())
+func main() {
+	fmt.Println("argie")
+	args := os.Args
+	n := Node{}
+	join, jaddr, ts, tff, tcp := n.initNode(args)
+	fmt.Println("initie")
+	n.LoadTLS()
+	GobRegister()
+	rpc.Register(&n)
+	go n.Server()
+	fmt.Println("servie")
+	if join {
+		jn := Node{addr: jaddr}
+		go n.Join(&jn)
+		fmt.Println("joinie")
 	}
-	cert, err := tls.LoadX509KeyPair(pub, key)
-	if err != nil {
-		log.Fatalf("Failed to load server certificate: %v", err)
+	if !join {
+		fmt.Println("creatie")
+		n.Create()
 	}
 
-	n.tls = tls.Config{Certificates: []tls.Certificate{cert}}
+	go n.RepeatNodeFunction(ts, n.Stabilize)
+	fmt.Println(tff)
+	//go n.RepeatNodeFunction(tff, n.Fix_fingers)
+	go n.RepeatNodeFunction(tcp, n.Check_predecessor)
 
-	l, err := tls.Listen("tcp", n.addr, &n.tls)
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-	defer l.Close()
+	running := true
+	fmt.Println("runnie")
+	for running {
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Print("Enter text: ")
+		input, _ := reader.ReadString('\n')
 
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			log.Printf("Connection error: %v", err)
-			continue
+		if runtime.GOOS == "windows" {
+			input = strings.TrimRight(input, "\r\n")
+		} else {
+			input = strings.TrimRight(input, "\n")
 		}
-		go rpc.ServeConn(conn)
-	}
 
+		if input == "Lookup" {
+
+		}
+		if input == "StoreFile" {
+
+		}
+		if input == "PrintState" {
+			n.PrintState()
+		}
+		if input == "q" {
+			running = false
+		}
+	}
+	os.Exit(0)
 }
 
-// Dial
-func (n *Node) Dial(rpcname string, args interface{}, reply interface{}, addr string) bool {
-	conn, err := tls.Dial("tcp", addr, &n.tls)
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-	defer conn.Close()
+// init Node & rpc?
+func (n *Node) initNode(args []string) (bool, string, string, string, string) {
+	var a, p, ja, jp, ts, tff, tcp, r bool
+	var ip, port, jip, jport, its, itff, itcp string
+	for i, s := range args {
+		fmt.Println(s)
+		if i >= len(args)-1 {
+			break
+		}
+		if s == "-a" {
+			a = true
+			ip = args[i+1]
+		}
+		if s == "-p" {
+			p = true
+			port = args[i+1]
+		}
+		if s == "--ja" {
+			ja = true
+			jip = args[i+1]
+		}
+		if s == "--jp" {
+			jp = true
+			jport = args[i+1]
+		}
+		if s == "--ts" {
+			ts = true
+			its = args[i+1] + "ms"
 
-	client := rpc.NewClient(conn)
+		}
+		if s == "--tff" {
+			tff = true
+			itff = args[i+1] + "ms"
+		}
+		if s == "--tcp" {
+			tcp = true
+			itcp = args[i+1] + "ms"
+		}
+		if s == "-r" {
+			j, err := strconv.Atoi(args[i+1])
+			if err == nil {
+				r = true
+				n.data.r = j
+				n.data.sNodes = make([]*Node, j)
+			}
+		}
+		if s == "-i" {
 
-	err = client.Call("Node.Find_Successor", &args, &reply)
-	if err != nil {
-		log.Fatal(err.Error())
+		}
 	}
-	return true
+	if !(a && p && ts && tff && tcp && r) || ((ja && !jp) || (!ja && jp)) {
+		log.Fatal("argie problem")
+	}
+	n.addr = ip + ":" + port
+	n.id = HashString(n.addr)
+	if ja && jp {
+		return true, jip + ":" + jport, its, itff, itcp
+	}
+	return false, "", its, itff, itcp
+
 }
 
 func (n *Node) AddSuccNode(new *Node) error {
-	if len(n.data.sNodes) == cap(n.data.sNodes) {
-		return fmt.Errorf("sNodes is full")
-	}
+	n.data.mu.Lock()
 	index := 0
-	for _, n_ := range n.data.sNodes {
-		if new.id > n_.id {
-			index++
+
+	for _, s := range n.data.sNodes {
+		if s == nil || Between(n.id, new.id, s.id, false) {
+			continue
 		}
-	}
-	n.data.sNodes = slices.Insert(n.data.sNodes, index, new)
-	return nil
-}
-func (n *Node) RemoveSuccNode(old *Node) error {
-	for i, n_ := range n.data.sNodes {
-		if old == n_ {
-			n.data.sNodes = slices.Delete(n.data.sNodes, i, i+1)
+		if s == new {
+			n.data.mu.Unlock()
 			return nil
 		}
+		index++
 	}
-	return fmt.Errorf("Node is not a successor")
+	if index >= n.data.r {
+		n.data.mu.Unlock()
+		return nil
+	}
+	n.data.sNodes[index] = new
+	n.data.mu.Unlock()
+	return nil
+}
+func (n *Node) RemoveSuccNode(old *Node) {
+	n.data.mu.Lock()
+	nils := 0
+	for i, n_ := range n.data.sNodes {
+		if old == n_ {
+			n.data.sNodes[i] = nil
+		}
+		if n.data.sNodes[i] == nil {
+			nils++
+		}
+	}
+	if nils == n.data.r {
+		n.AddSuccNode(n)
+	}
+	n.data.mu.Unlock()
+}
+func (n *Node) GetSuccNode() *Node {
+	n.data.mu.Lock()
+	var closest *Node
+	for _, n_ := range n.data.sNodes {
+		if closest == nil || n_.id.Cmp(closest.id) < 0 {
+			closest = n_
+		}
+	}
+	cid := new(big.Int) // trying to be safe
+	*cid = *closest.id
+	n.data.mu.Unlock()
+	return &Node{id: cid, addr: closest.addr}
 }
 
-func HashString(s string) uint64 {
-	return HashData([]byte(s))
-}
-func HashInt(i int) uint64 {
-	return HashData([]byte(strconv.Itoa(i)))
-}
-func HashData(d []byte) uint64 {
-	hash := sha1.Sum(d)
-	res := binary.BigEndian.Uint64(hash[:]) % M
-	return res
+func (n *Node) RepeatNodeFunction(t string, fn func()) {
+	t_, err := time.ParseDuration(t)
+	if err != nil {
+		log.Fatal("tcp not working")
+	}
+	for {
+		fn()
+		time.Sleep(t_)
+	}
 }
