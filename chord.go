@@ -53,33 +53,32 @@ type Finger struct {
 
 // main func
 func main() {
-	fmt.Println("argie")
+	//fmt.Println("argie")
 	args := os.Args
 	n := Node{}
 	join, jaddr, ts, tff, tcp := n.initNode(args)
-	fmt.Println("initie")
+	//fmt.Println("initie")
 	n.LoadTLS()
 	GobRegister()
 	rpc.Register(&n)
 	go n.Server()
-	fmt.Println("servie")
+	//fmt.Println("servie")
 	if join {
 		jn := Node{addr: jaddr}
 		go n.Join(&jn)
-		fmt.Println("joinie")
+		//fmt.Println("joinie")
 	}
 	if !join {
-		fmt.Println("creatie")
+		//fmt.Println("creatie")
 		n.Create()
 	}
 
 	go n.RepeatNodeFunction(ts, n.Stabilize)
-	fmt.Println(tff)
-	//go n.RepeatNodeFunction(tff, n.Fix_fingers)
+	go n.RepeatNodeFunction(tff, n.Fix_fingers)
 	go n.RepeatNodeFunction(tcp, n.Check_predecessor)
 
 	running := true
-	fmt.Println("runnie")
+	//fmt.Println("runnie")
 	for running {
 		reader := bufio.NewReader(os.Stdin)
 		fmt.Print("Enter text: ")
@@ -162,6 +161,7 @@ func (n *Node) initNode(args []string) (bool, string, string, string, string) {
 	}
 	n.addr = ip + ":" + port
 	n.id = HashString(n.addr)
+	n.ft.finger = make([]Finger, 7)
 	if ja && jp {
 		return true, jip + ":" + jport, its, itff, itcp
 	}
@@ -172,17 +172,25 @@ func (n *Node) initNode(args []string) (bool, string, string, string, string) {
 func (n *Node) AddSuccNode(new *Node) error {
 	n.data.mu.Lock()
 	index := 0
+	new_ := new
 
 	for _, s := range n.data.sNodes {
-		if s == nil || Between(n.id, new.id, s.id, false) {
-			continue
+		if s == nil {
+			break
 		}
-		if s == new {
+		if s.addr == new_.addr {
 			n.data.mu.Unlock()
 			return nil
 		}
+		if Between(n.id, new_.id, s.id, false) {
+			old := s
+			s = new_
+			new_ = old
+		}
+
 		index++
 	}
+	fmt.Println(index)
 	if index >= n.data.r {
 		n.data.mu.Unlock()
 		return nil
@@ -195,14 +203,15 @@ func (n *Node) RemoveSuccNode(old *Node) {
 	n.data.mu.Lock()
 	nils := 0
 	for i, n_ := range n.data.sNodes {
-		if old == n_ {
+		if old.addr == n_.addr {
 			n.data.sNodes[i] = nil
 		}
 		if n.data.sNodes[i] == nil {
 			nils++
 		}
 	}
-	if nils == n.data.r {
+	fmt.Println(nils)
+	if nils >= n.data.r {
 		n.AddSuccNode(n)
 	}
 	n.data.mu.Unlock()
@@ -211,9 +220,16 @@ func (n *Node) GetSuccNode() *Node {
 	n.data.mu.Lock()
 	var closest *Node
 	for _, n_ := range n.data.sNodes {
+		if n_ == nil {
+			continue
+		}
 		if closest == nil || n_.id.Cmp(closest.id) < 0 {
 			closest = n_
 		}
+	}
+	if closest == nil {
+		n.data.mu.Unlock()
+		return nil
 	}
 	cid := new(big.Int) // trying to be safe
 	*cid = *closest.id
@@ -224,7 +240,7 @@ func (n *Node) GetSuccNode() *Node {
 func (n *Node) RepeatNodeFunction(t string, fn func()) {
 	t_, err := time.ParseDuration(t)
 	if err != nil {
-		log.Fatal("tcp not working")
+		log.Fatal("repeat func not working")
 	}
 	for {
 		fn()

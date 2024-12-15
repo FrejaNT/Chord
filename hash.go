@@ -5,7 +5,7 @@ import (
 	"math/big"
 )
 
-const keySize = sha1.Size * 8
+const keySize = 128
 
 var two = big.NewInt(2)
 var hashMod = new(big.Int).Exp(big.NewInt(2), big.NewInt(keySize), nil)
@@ -22,7 +22,7 @@ func GetMod(elt *big.Int) *big.Int {
 
 func Jump(address string, fingerentry int) *big.Int {
 	n := HashString(address)
-	fingerentryminus1 := big.NewInt(int64(fingerentry) - 1)
+	fingerentryminus1 := big.NewInt(int64(fingerentry))
 	jump := new(big.Int).Exp(two, fingerentryminus1, nil)
 	sum := new(big.Int).Add(n, jump)
 

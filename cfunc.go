@@ -91,6 +91,7 @@ func (n *Node) Call_Stabilize(args *Call_Stabilize_Args, reply *Call_Stabilize_R
 	n.pNode.mu.Lock()
 	if n.pNode.n == nil {
 		reply.OK = false
+		n.pNode.mu.Unlock()
 		return nil
 	}
 	reply.Id = n.pNode.n.id.Bytes()
@@ -114,9 +115,10 @@ func (n *Node) Notify(args *Notify_Args, reply *Notify_Reply) error {
 func (n *Node) Fix_fingers() {
 	for i := range n.ft.finger {
 		go func() {
-			args := Find_successor_Args{Id: n.ft.finger[i].i.Bytes()}
+			args := Find_successor_Args{Id: Jump(n.addr, i).Bytes()}
 			reply := Find_successor_Reply{}
 			n.Find_successor(&args, &reply)
+			n.ft.finger[i].n = &Node{id: ConvToBig(reply.Id), addr: reply.Addr}
 		}() // error
 	}
 
@@ -126,6 +128,7 @@ func (n *Node) Fix_fingers() {
 func (n *Node) Check_predecessor() {
 	n.pNode.mu.Lock()
 	if n.pNode.n == nil {
+		n.pNode.mu.Unlock()
 		return
 	}
 	paddr := n.pNode.n.addr
@@ -139,6 +142,7 @@ func (n *Node) Check_predecessor() {
 		n.pNode.n = nil
 	} // error
 	if reply.OK {
+		n.pNode.mu.Unlock()
 		return
 	}
 	n.pNode.n = nil

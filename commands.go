@@ -10,12 +10,11 @@ func (n *Node) PrintState() {
 	n.printNode()
 	fmt.Println()
 	fmt.Println("Predecessor:")
-	n.pNode.mu.Lock()
-	n.pNode.n.printNode()
-	n.pNode.mu.Unlock()
+	if n.pNode.n != nil {
+		n.pNode.n.printNode()
+	}
 	fmt.Println()
 	fmt.Println("Successors:")
-	n.data.mu.Lock()
 	for _, s := range n.data.sNodes {
 		if s == nil {
 			continue
@@ -23,7 +22,15 @@ func (n *Node) PrintState() {
 		s.printNode()
 		fmt.Println()
 	}
-	n.data.mu.Unlock()
+	fmt.Println()
+	fmt.Println("Fingers:")
+	for _, s := range n.ft.finger {
+		if s.n == nil {
+			continue
+		}
+		s.n.printNode()
+		fmt.Println()
+	}
 
 }
 
