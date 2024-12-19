@@ -13,8 +13,9 @@ import (
 	"time"
 )
 
-func (n *Node) LoadTLS() {
-	key, pub, err := GenerateRSA()
+// sets up tls certificate for a node
+func (n *Node) loadTLS() {
+	key, pub, err := generateRSA()
 	if err != nil {
 		log.Fatal(err.Error())
 	}
@@ -26,36 +27,35 @@ func (n *Node) LoadTLS() {
 	n.tls = tls.Config{Certificates: []tls.Certificate{cert}, InsecureSkipVerify: true}
 }
 
-func GenerateRSA() (string, string, error) {
+func generateRSA() (string, string, error) {
 	filename := "key"
 	bitSize := 4096
 
-	// Generate RSA key.
+	// Generate key
 	key, err := rsa.GenerateKey(rand.Reader, bitSize)
 	if err != nil {
 		return "", "", err
 	}
 
-	// Create a self-signed certificate template.
+	// Create certificate (we use )
 	template := x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
 			Organization: []string{"burpie"},
 		},
 		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(365 * 24 * time.Hour), // 1 year validity
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 	}
 
-	// Create the certificate.
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 	if err != nil {
 		return "", "", err
 	}
 
-	// Encode private key to PKCS#1 ASN.1 PEM.
+	// encode
 	keyPEM := pem.EncodeToMemory(
 		&pem.Block{
 			Type:  "RSA PRIVATE KEY",
@@ -63,7 +63,6 @@ func GenerateRSA() (string, string, error) {
 		},
 	)
 
-	// Encode the certificate to PEM format.
 	certPEM := pem.EncodeToMemory(
 		&pem.Block{
 			Type:  "CERTIFICATE",
@@ -71,12 +70,11 @@ func GenerateRSA() (string, string, error) {
 		},
 	)
 
-	// Write the private key to a file.
+	// write
 	if err := os.WriteFile(filename+".rsa", keyPEM, 0700); err != nil {
 		return "", "", err
 	}
 
-	// Write the certificate to a file.
 	if err := os.WriteFile(filename+".rsa.pub", certPEM, 0755); err != nil {
 		return "", "", err
 	}

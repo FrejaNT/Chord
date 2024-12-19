@@ -2,9 +2,13 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 )
 
-func (n *Node) PrintState() {
+func (n *Node) printState() {
 	fmt.Println()
 	fmt.Println("Node:")
 	n.printNode()
@@ -15,7 +19,7 @@ func (n *Node) PrintState() {
 	}
 	fmt.Println()
 	fmt.Println("Successors:")
-	for _, s := range n.data.sNodes {
+	for _, s := range n.sNodes.n {
 		if s == nil {
 			continue
 		}
@@ -24,14 +28,13 @@ func (n *Node) PrintState() {
 	}
 	fmt.Println()
 	fmt.Println("Fingers:")
-	for _, s := range n.ft.finger {
-		if s.n == nil {
+	for _, f := range n.finger {
+		if f == nil {
 			continue
 		}
-		s.n.printNode()
+		f.printNode()
 		fmt.Println()
 	}
-
 }
 
 func (n *Node) printNode() {
@@ -39,9 +42,70 @@ func (n *Node) printNode() {
 	fmt.Println("Address: " + n.addr)
 }
 
-func (n *Node) StoreFile() {
+func (n *Node) storeFile(path string) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+	var split []string
+	if runtime.GOOS == "windows" {
+		split = strings.Split(path, "\"")
+	} else {
+		split = strings.Split(path, "/")
+	}
+	name := split[len(split)-1]
 
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+
+	if err := n.sendFile(name, data); err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+	fmt.Println("Store Successful")
 }
-func (n *Node) Lookup() {
 
+// Tries to find file "name" and prints Host id, -address and content
+func (n *Node) lookup(name string) {
+	id := getMod(hashString(name))
+	n_, err := n.find(id, n)
+	if err != nil {
+		fmt.Println("could not find host   " + err.Error())
+		return
+	}
+	args := Get_File_Args{Name: name}
+	reply := Get_File_Reply{}
+	if err := n.dial("Node.GetFile", &args, &reply, n_.addr); err != nil {
+		n.removeSuccNode(n_)
+		fmt.Println("could not get file   " + err.Error())
+		return
+	}
+	fmt.Println()
+	fmt.Println("Host ID: " + n_.id.String())
+	fmt.Println("Host Address: " + n_.addr)
+	fmt.Println("Contents of " + name + ":")
+	fmt.Println(string(reply.Data))
+}
+
+// Creates a text file
+func (n *Node) createFile(name string, content string) {
+	abs, err := filepath.Abs(name)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+	f, err := os.Create(abs)
+	if err != nil {
+		fmt.Println("could not create file   " + err.Error())
+		return
+	}
+	if _, err := f.Write([]byte(content)); err != nil {
+		fmt.Println("could not write file   " + err.Error())
+		return
+	}
+	fmt.Println("File created")
 }
